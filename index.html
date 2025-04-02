@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Survesh's 3D Block Burster Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden; /* Prevent scrollbars */
+            background-color: #111;
+            font-family: sans-serif;
+            width: 100%;
+            height: 100%;
+            position: fixed; /* Prevent pull-to-refresh */
+        }
+        canvas {
+            display: block;
+        }
+        #messageOverlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.75);
+            color: white;
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            z-index: 10;
+            cursor: pointer;
+        }
+        #messageOverlay h1 { font-size: clamp(2em, 8vw, 4em); margin-bottom: 15px; color: #FF5555; text-shadow: 2px 2px 4px #000; }
+        #messageOverlay p { font-size: clamp(1em, 4vw, 1.5em); line-height: 1.4; }
+        #messageOverlay p span { display: block; margin-top: 10px; font-size: 0.9em; opacity: 0.8;}
+
+        #fullscreenButton {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 8px 12px;
+            font-size: 14px;
+            background-color: rgba(80, 80, 80, 0.5);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 20;
+            opacity: 0.7;
+            transition: opacity 0.3s, background-color 0.3s;
+        }
+        #fullscreenButton:hover {
+            opacity: 1.0;
+            background-color: rgba(100, 100, 100, 0.7);
+        }
+    </style>
+</head>
+<body>
+    <button id="fullscreenButton">Fullscreen</button>
+
+    <div id="messageOverlay">
+        <h1 id="messageTitle"></h1>
+        <p id="messageText"></p>
+    </div>
+
+    <!-- Three.js library -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        console.log("Survesh's 3D Block Burster Game Initializing...");
+
+        // --- DOM Elements ---
+        const messageOverlay = document.getElementById('messageOverlay');
+        const messageTitle = document.getElementById('messageTitle');
+        const messageText = document.getElementById('messageText');
+        const fullscreenButton = document.getElementById('fullscreenButton');
+
+        // --- Core Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x101018);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const cameraYOffset = 8;
+        const cameraRadius = 45; // Adjusted for wider view
+        const CAMERA_MAX_ANGLE_DEG = 15;
+        const CAMERA_MAX_ANGLE_RAD = THREE.MathUtils.degToRad(CAMERA_MAX_ANGLE_DEG);
+        let cameraAngle = 0;
+        camera.position.set( cameraRadius * Math.sin(cameraAngle), cameraYOffset, cameraRadius * Math.cos(cameraAngle) );
+        camera.lookAt(0, 0, 0);
+
+        // --- Renderer Setup ---
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setPixelRatio( window.devicePixelRatio );
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.useLegacyLights = false;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 0.65;
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        document.body.appendChild(renderer.domElement);
+        const clock = new THREE.Clock();
+
+        // --- Environment Map Setup ---
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        pmremGenerator.compileEquirectangularShader();
+        let envMapTexture = null;
+        function updateEnvironmentMap() { console.log("Updating environment map..."); if (envMapTexture) envMapTexture.dispose(); const rt = pmremGenerator.fromScene(scene, 0, 0.1, 1000); envMapTexture = rt.texture; scene.environment = envMapTexture; console.log("Environment map updated and applied."); }
+
+        // --- Lighting ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.3); directionalLight.position.set(15, 15, -20); directionalLight.castShadow = true; directionalLight.shadow.mapSize.width = 2048; directionalLight.shadow.mapSize.height = 2048; directionalLight.shadow.camera.near = 0.5; directionalLight.shadow.camera.far = 60; directionalLight.shadow.bias = -0.001; scene.add(directionalLight);
+        const keyLight = new THREE.SpotLight( 0xffffff, 600, 100, Math.PI / 7, 0.3, 1.5 ); keyLight.position.set(-25, 35, 20); keyLight.target.position.set(0, -5, 0); keyLight.castShadow = true; keyLight.shadow.mapSize.width = 4096; keyLight.shadow.mapSize.height = 4096; keyLight.shadow.camera.near = 10; keyLight.shadow.camera.far = 100; keyLight.shadow.bias = -0.002; scene.add(keyLight); scene.add(keyLight.target);
+
+        // --- PBR Material Properties ---
+        const PADDLE_MATERIAL_PROPS = { color: 0x00ffff, metalness: 0.8, roughness: 0.3 };
+        const ORB_GLOW_COLOR = 0xffffff;
+        const ORB_MATERIAL_PROPS = { color: 0xffffff, metalness: 0.1, roughness: 0.4, emissive: ORB_GLOW_COLOR, emissiveIntensity: 2.5 };
+        const BLOCK_COLORS = { 'W': 0xFFFFFF, 'C': 0x00FFFF, 'M': 0xFF00FF, 'I': 0x888888 };
+        const BLOCK_PBR_PROPS = { 'W': { metalness: 0.1, roughness: 0.9 }, 'C': { metalness: 0.2, roughness: 0.6 }, 'M': { metalness: 0.3, roughness: 0.5 }, 'I': { metalness: 0.7, roughness: 0.8 } };
+        const BLOCK_MATERIALS = {};
+        for (const char in BLOCK_COLORS) { const pbr = BLOCK_PBR_PROPS[char] || { metalness: 0.1, roughness: 0.8 }; BLOCK_MATERIALS[char] = new THREE.MeshStandardMaterial({ color: BLOCK_COLORS[char], metalness: pbr.metalness, roughness: pbr.roughness }); }
+
+        // --- Game Constants & State ---
+        const PADDLE_WIDTH = 10; const PADDLE_HEIGHT = 1; const PADDLE_DEPTH = 1; const PADDLE_Y_POS = -15; const PADDLE_SPEED = 0.6;
+        const ORB_RADIUS = 0.8; const ORB_INITIAL_SPEED = 0.25;
+        const BLOCK_WIDTH = 4; const BLOCK_HEIGHT = 1.5; const BLOCK_DEPTH = 1.5; const BLOCK_GAP = 0.5;
+        const PLAY_AREA_WIDTH_HALF = 35; // Wider play area
+        const PLAY_AREA_HEIGHT_HALF = 18;
+        const ORB_SPEED_INCREASE_PER_HIT = 0.005;
+        const BLOCK_PLACEMENT_TOP_MARGIN = 2;
+
+        // --- Boundary Constants ---
+        const BOUNDARY_BOTTOM_Y = PADDLE_Y_POS - 1;
+        const BOUNDARY_WIDTH = PLAY_AREA_WIDTH_HALF * 2; // Auto-updates
+        const BOUNDARY_HEIGHT = PLAY_AREA_HEIGHT_HALF - BOUNDARY_BOTTOM_Y;
+        const BOUNDARY_DEPTH = BLOCK_DEPTH * 2;
+        const BOUNDARY_COLOR = 0xffaaaa;
+
+        const BLOCK_PROPERTIES = { 'W': { health: 1 }, 'C': { health: 2 }, 'M': { health: 3 }, 'I': { health: Infinity } };
+        const TOTAL_LEVELS = 3;
+        // ****** UPDATED LEVEL LAYOUTS ******
+        const LEVEL_LAYOUTS = [
+            // Level 1 (Wider: 13 blocks across central rows)
+            [
+                "I W C W C W C W C W C W I", // 13 wide + 2 I = 15 total
+                " W C W C . C . C W C W ",   // 11 (spaces) -> 8 blocks
+                "C W I W . M . W I W C",   // 11 (spaces) -> 9 blocks
+                " W . C W M M W C . W "    // 11 (spaces) -> 7 blocks
+            ],
+            // Level 2 (Wider: 15 blocks across central rows)
+            [
+                "I C M C M C M C M C M C M C I", // 15 wide + 2 I = 17 total
+                " C W W M W C W C W M W W C ",   // 13 (spaces) -> 11 blocks
+                "M C I C W M W M W C I C M",   // 13 (spaces) -> 11 blocks
+                " W M W M C . M . C M W M W ",   // 13 (spaces) -> 10 blocks
+                "C W M . . I . I . . M W C"    // 13 (spaces) -> 7 blocks
+            ],
+            // Level 3 (Wider: 15 blocks across central rows)
+            [
+                "I M C M C M W M C M C M C M I", // 15 wide + 2 I = 17 total
+                " M C W C M C I C M C W C M ",   // 13 (spaces) -> 11 blocks
+                "C M I M C W M W C M I M C",   // 13 (spaces) -> 11 blocks
+                " W C W W I C M C I W W C W ",   // 13 (spaces) -> 11 blocks
+                "M C M C M C W C M C M C M"    // 13 (spaces) -> 13 blocks
+            ]
+        ];
+
+        // --- Game State ---
+        let lives = 3; let score = 0; let gameState = "playing"; let leftPressed = false; let rightPressed = false; let animationFrameId = null;
+        let currentLevel = 1;
+        let isTouching = false;
+        let touchTargetX = 0;
+        const touchLerpFactor = 0.15;
+
+        // --- Camera Shake State ---
+        let isCameraShaking = false; let shakeStartTime = 0; const shakeDuration = 1000; const shakeIntensity = 5.0; const shakeFrequency = 5;
+
+        // --- Fragmentation Constants ---
+        const FRAGMENT_DIVISIONS_X = 2; const FRAGMENT_DIVISIONS_Y = 2; const FRAGMENT_DIVISIONS_Z = 1; const FRAGMENT_COUNT = FRAGMENT_DIVISIONS_X * FRAGMENT_DIVISIONS_Y * FRAGMENT_DIVISIONS_Z; const FRAGMENT_WIDTH = BLOCK_WIDTH / FRAGMENT_DIVISIONS_X; const FRAGMENT_HEIGHT = BLOCK_HEIGHT / FRAGMENT_DIVISIONS_Y; const FRAGMENT_DEPTH = BLOCK_DEPTH / FRAGMENT_DIVISIONS_Z; const FRAGMENT_LIFESPAN = 1.5; const FRAGMENT_MIN_SPEED = 8; const FRAGMENT_MAX_SPEED = 15; const FRAGMENT_GRAVITY = 9.8; const FRAGMENT_DAMPING = 0.99; const FRAGMENT_ROTATION_SPEED = Math.PI * 1.5;
+
+        // --- Game Objects ---
+        let paddle = null; let orb = null; let blocks = []; let orbVelocity = new THREE.Vector3(0, 0, 0);
+        let boundaryLines = null;
+        let activeFragments = [];
+        let orbPointLight = null;
+        let blockGeometry = null;
+        let fragmentGeometryCache = null;
+
+        // --- HUD Elements ---
+        const hudCanvas = document.createElement('canvas');
+        hudCanvas.width = 600; // Increased width
+        hudCanvas.height = 50;
+        const hudCtx = hudCanvas.getContext('2d');
+        const hudTexture = new THREE.CanvasTexture(hudCanvas);
+        const hudMaterial = new THREE.SpriteMaterial({ map: hudTexture, transparent: true });
+        const hudSprite = new THREE.Sprite(hudMaterial);
+        hudSprite.scale.set(hudCanvas.width / 10, hudCanvas.height / 10, 1.0); // Adjust scale
+        hudSprite.position.set(0, PLAY_AREA_HEIGHT_HALF + 3, 0);
+        scene.add(hudSprite);
+
+        // --- Post-processing Setup ---
+        const renderTarget = new THREE.WebGLRenderTarget( window.innerWidth, window.innerHeight, { type: THREE.HalfFloatType });
+        const composer = new EffectComposer( renderer, renderTarget );
+        composer.setPixelRatio(window.devicePixelRatio);
+        composer.setSize(window.innerWidth, window.innerHeight);
+        const renderScene = new RenderPass( scene, camera );
+        const bloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ), 1.5, 0.4, 0.85 );
+        bloomPass.threshold = 0.8; bloomPass.strength = 1.2; bloomPass.radius = 0.5;
+        composer.addPass( renderScene );
+        composer.addPass( bloomPass );
+
+        // --- Utility Functions ---
+        function showMessage(title, text) { /* ... same ... */ messageTitle.textContent = title; let instruction = "\n<span>(Click or Tap to Restart)</span>"; if (gameState === 'gameOver' || title === "YOU WIN!" || title.startsWith("LEVEL")) { messageText.innerHTML = text + instruction; } else { messageText.textContent = text; } messageOverlay.style.display = 'flex'; console.log("Showing message:", title); }
+        function hideMessage() { messageOverlay.style.display = 'none'; }
+        function increaseOrbSpeed(amount) { if (!orb || !orb.userData) return; orb.userData.currentSpeed += amount; orbVelocity.normalize().multiplyScalar(orb.userData.currentSpeed); }
+        function triggerCameraShake() { if (!isCameraShaking) { isCameraShaking = true; shakeStartTime = performance.now(); } }
+
+        // --- Setup Functions ---
+        function createPaddle() { /* ... same ... */ const geometry = new THREE.BoxGeometry(PADDLE_WIDTH, PADDLE_HEIGHT, PADDLE_DEPTH); const material = new THREE.MeshStandardMaterial(PADDLE_MATERIAL_PROPS); paddle = new THREE.Mesh(geometry, material); paddle.position.set(0, PADDLE_Y_POS, 0); paddle.castShadow = true; paddle.receiveShadow = true; scene.add(paddle); console.log("Paddle created."); }
+        function createOrb() { /* ... same ... */ const geometry = new THREE.SphereGeometry(ORB_RADIUS, 64, 32); const material = new THREE.MeshStandardMaterial(ORB_MATERIAL_PROPS); orb = new THREE.Mesh(geometry, material); orb.userData = { baseSpeed: ORB_INITIAL_SPEED, currentSpeed: ORB_INITIAL_SPEED }; orb.castShadow = true; orbPointLight = new THREE.PointLight(ORB_GLOW_COLOR, 150, 0, 1.8 ); orb.add(orbPointLight); resetOrbPositionAndAngle(); scene.add(orb); console.log("Orb created."); }
+        function setupLevelBlocks(levelNum) { /* ... same ... */ console.log(`Setting up blocks for Level ${levelNum}...`); const layout = LEVEL_LAYOUTS[levelNum - 1]; if (!layout) { console.error(`Invalid level number: ${levelNum}`); gameState = "gameOver"; showMessage("Error", "Invalid level data.\n<span>(Click or Tap to Restart)</span>"); return; } cleanupFragments(); blocks.forEach(blockData => { if (blockData.mesh.parent) scene.remove(blockData.mesh); }); blocks = []; const numRows = layout.length; if (numRows === 0) return; let maxCols = 0; const validRows = layout.filter(row => row.trim().length > 0); if (validRows.length > 0) { maxCols = Math.max(...validRows.map(row => row.trim().split(' ').filter(c => c !== '').length)); } if (maxCols === 0) return; const totalGridWidth = maxCols * BLOCK_WIDTH + (maxCols > 1 ? (maxCols - 1) * BLOCK_GAP : 0); const startX = -totalGridWidth / 2 + BLOCK_WIDTH / 2; const blockGridTopY = PLAY_AREA_HEIGHT_HALF - BLOCK_PLACEMENT_TOP_MARGIN; const startY = blockGridTopY - BLOCK_HEIGHT / 2; if (!blockGeometry) { blockGeometry = new THREE.BoxGeometry(BLOCK_WIDTH, BLOCK_HEIGHT, BLOCK_DEPTH); console.log("Created shared block geometry."); } let blocksAddedCount = 0; for (let r = 0; r < numRows; r++) { const rowChars = layout[r].trim().split(' ').filter(c => c !== ''); const rowLength = rowChars.length; const rowWidth = rowLength * BLOCK_WIDTH + (rowLength > 1 ? (rowLength - 1) * BLOCK_GAP : 0); const rowStartX = -rowWidth / 2 + BLOCK_WIDTH / 2; for (let c = 0; c < rowLength; c++) { const blockChar = rowChars[c]; if (blockChar !== '.' && BLOCK_PROPERTIES[blockChar] && BLOCK_MATERIALS[blockChar]) { const baseProps = BLOCK_PROPERTIES[blockChar]; const blockMat = BLOCK_MATERIALS[blockChar]; const blockMesh = new THREE.Mesh(blockGeometry, blockMat); blockMesh.position.x = rowStartX + c * (BLOCK_WIDTH + BLOCK_GAP); blockMesh.position.y = startY - r * (BLOCK_HEIGHT + BLOCK_GAP); blockMesh.position.z = 0; blockMesh.castShadow = true; blockMesh.receiveShadow = true; scene.add(blockMesh); blocks.push({ mesh: blockMesh, health: baseProps.health, initialHealth: baseProps.health, char: blockChar, isBreakable: (blockChar !== 'I') }); blocksAddedCount++; } else if (blockChar !== '.' && blockChar !== ' ') { console.warn(`Unknown or invalid block character '${blockChar}' [${blockChar.charCodeAt(0)}] in layout row ${r}.`); } } } console.log(`Created ${blocksAddedCount} blocks for Level ${levelNum}.`); setTimeout(updateEnvironmentMap, 0); }
+        function createBoundaries() { /* ... same, uses updated BOUNDARY_WIDTH ... */ if (boundaryLines && boundaryLines.parent) { scene.remove(boundaryLines); if (boundaryLines.geometry) boundaryLines.geometry.dispose(); if (boundaryLines.material) boundaryLines.material.dispose(); } const boundaryGeometry = new THREE.BoxGeometry(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, BOUNDARY_DEPTH); const boundaryEdges = new THREE.EdgesGeometry(boundaryGeometry); const boundaryMaterial = new THREE.LineBasicMaterial({ color: BOUNDARY_COLOR, linewidth: 2 }); boundaryLines = new THREE.LineSegments(boundaryEdges, boundaryMaterial); const boundaryCenterY = (PLAY_AREA_HEIGHT_HALF + BOUNDARY_BOTTOM_Y) / 2; boundaryLines.position.set(0, boundaryCenterY, 0); scene.add(boundaryLines); console.log(`Boundaries created at Y=${boundaryCenterY.toFixed(2)}, Width=${BOUNDARY_WIDTH}, Height=${BOUNDARY_HEIGHT}`); }
+        function resetOrb() { /* ... same ... */ if (!orb || !paddle) return; lives--; updateHUD(); if (lives <= 0) { gameState = "gameOver"; console.log("Game Over!"); showMessage("GAME OVER", "Score: " + score + "\nLevel: " + currentLevel); if(orb.parent) scene.remove(orb); isCameraShaking = false; cleanupFragments(); return; } orb.userData.currentSpeed = ORB_INITIAL_SPEED + (currentLevel -1) * 0.05; orb.position.set(paddle.position.x, PADDLE_Y_POS + 5, 0); resetOrbPositionAndAngle(); console.log(`Life lost. Lives: ${lives}. Orb reset.`); }
+        function resetOrbPositionAndAngle() { /* ... same ... */ if(!orb || !orb.userData) return; const angle = (Math.random() * Math.PI / 3) - (Math.PI / 6); const initialSpeedY = Math.abs(Math.sin(angle) * orb.userData.currentSpeed) + orb.userData.currentSpeed * 0.6; const initialSpeedX = Math.cos(angle) * orb.userData.currentSpeed * (Math.random() < 0.5 ? 1 : -1); orbVelocity.set( initialSpeedX, initialSpeedY, 0 ).normalize().multiplyScalar(orb.userData.currentSpeed); }
+
+        // --- Update Functions ---
+        function updatePaddle() { /* ... same, uses updated PLAY_AREA_WIDTH_HALF ... */ if (!paddle) return; const paddleLimit = PLAY_AREA_WIDTH_HALF - PADDLE_WIDTH / 2; if (isTouching) { paddle.position.x = THREE.MathUtils.lerp(paddle.position.x, touchTargetX, touchLerpFactor); paddle.position.x = Math.max(-paddleLimit, Math.min(paddleLimit, paddle.position.x)); } else { if (rightPressed) { paddle.position.x += PADDLE_SPEED; } else if (leftPressed) { paddle.position.x -= PADDLE_SPEED; } paddle.position.x = Math.max(-paddleLimit, Math.min(paddleLimit, paddle.position.x)); } }
+        function updateCamera() { /* ... same, uses updated cameraRadius ... */ if (!paddle && !isCameraShaking) return; let targetX = camera.position.x; let targetZ = camera.position.z; let targetY = cameraYOffset; if (paddle) { const paddleLimit = PLAY_AREA_WIDTH_HALF - PADDLE_WIDTH / 2; const normalizedPaddleX = paddle.position.x / paddleLimit; const targetAngle = normalizedPaddleX * CAMERA_MAX_ANGLE_RAD; cameraAngle = targetAngle; targetX = cameraRadius * Math.sin(cameraAngle); targetZ = cameraRadius * Math.cos(cameraAngle); } if (isCameraShaking) { const elapsedTime = performance.now() - shakeStartTime; if (elapsedTime < shakeDuration) { const shakePhase = (elapsedTime / 1000) * shakeFrequency * Math.PI * 2; const dampeningFactor = Math.pow(1 - (elapsedTime / shakeDuration), 2); const shakeOffset = Math.sin(shakePhase) * shakeIntensity * dampeningFactor; targetY += shakeOffset; } else { isCameraShaking = false; } } camera.position.set(targetX, targetY, targetZ); camera.lookAt(0, 0, 0); }
+        function updateOrb() { /* ... same, uses updated PLAY_AREA_WIDTH_HALF ... */ if (!orb) return; orb.position.addScaledVector(orbVelocity, 1); let bouncedWall = false; if (orb.position.x + ORB_RADIUS > PLAY_AREA_WIDTH_HALF || orb.position.x - ORB_RADIUS < -PLAY_AREA_WIDTH_HALF) { orbVelocity.x *= -1; orb.position.x = Math.max(-(PLAY_AREA_WIDTH_HALF - ORB_RADIUS), Math.min(PLAY_AREA_WIDTH_HALF - ORB_RADIUS, orb.position.x)); bouncedWall = true; } if (orb.position.y + ORB_RADIUS > PLAY_AREA_HEIGHT_HALF) { orbVelocity.y *= -1; orb.position.y = PLAY_AREA_HEIGHT_HALF - ORB_RADIUS; bouncedWall = true; } if (bouncedWall) { increaseOrbSpeed(ORB_SPEED_INCREASE_PER_HIT * 0.5); } if (orb.position.y - ORB_RADIUS < PADDLE_Y_POS - 5) { resetOrb(); } }
+        function createFragments(blockPosition, blockMaterial) { /* ... same ... */ const fragmentGroup = new THREE.Group(); const fragmentBaseMaterialProps = { color: blockMaterial.color.clone(), metalness: blockMaterial.metalness, roughness: blockMaterial.roughness, transparent: true, opacity: 1.0 }; if (!fragmentGeometryCache) { fragmentGeometryCache = new THREE.BoxGeometry( FRAGMENT_WIDTH, FRAGMENT_HEIGHT, FRAGMENT_DEPTH ); console.log("Created shared fragment geometry cache."); } const fragmentsToCreate = FRAGMENT_DIVISIONS_X * FRAGMENT_DIVISIONS_Y * FRAGMENT_DIVISIONS_Z; const fragmentMaterials = []; const fragmentGeometries = []; for (let i = 0; i < fragmentsToCreate; i++) { const ix = Math.floor(i / (FRAGMENT_DIVISIONS_Y * FRAGMENT_DIVISIONS_Z)) % FRAGMENT_DIVISIONS_X; const iy = Math.floor(i / FRAGMENT_DIVISIONS_Z) % FRAGMENT_DIVISIONS_Y; const iz = i % FRAGMENT_DIVISIONS_Z; const fragmentMaterial = new THREE.MeshStandardMaterial(fragmentBaseMaterialProps); fragmentMaterials.push(fragmentMaterial); const fragmentMesh = new THREE.Mesh(fragmentGeometryCache, fragmentMaterial); const offsetX = (ix - (FRAGMENT_DIVISIONS_X - 1) / 2) * FRAGMENT_WIDTH; const offsetY = (iy - (FRAGMENT_DIVISIONS_Y - 1) / 2) * FRAGMENT_HEIGHT; const offsetZ = (iz - (FRAGMENT_DIVISIONS_Z - 1) / 2) * FRAGMENT_DEPTH; fragmentMesh.position.copy(blockPosition).add(new THREE.Vector3(offsetX, offsetY, offsetZ)); fragmentMesh.castShadow = true; const velocity = new THREE.Vector3( (Math.random() - 0.5), (Math.random() - 0.5), (Math.random() * 0.8 + 0.2) ).normalize(); const speed = THREE.MathUtils.randFloat(FRAGMENT_MIN_SPEED, FRAGMENT_MAX_SPEED); velocity.multiplyScalar(speed); const angularVelocity = new THREE.Vector3( THREE.MathUtils.randFloatSpread(FRAGMENT_ROTATION_SPEED), THREE.MathUtils.randFloatSpread(FRAGMENT_ROTATION_SPEED), THREE.MathUtils.randFloatSpread(FRAGMENT_ROTATION_SPEED) ); fragmentMesh.userData.velocity = velocity; fragmentMesh.userData.angularVelocity = angularVelocity; fragmentGroup.add(fragmentMesh); } if (fragmentsToCreate > 0) { fragmentGeometries.push(fragmentGeometryCache); } scene.add(fragmentGroup); activeFragments.push({ group: fragmentGroup, startTime: clock.getElapsedTime(), geometries: fragmentGeometries, materials: fragmentMaterials }); }
+        function updateFragments(deltaTime) { /* ... same ... */ if (activeFragments.length === 0) return; const currentTime = clock.getElapsedTime(); for (let i = activeFragments.length - 1; i >= 0; i--) { const fragmentSet = activeFragments[i]; const elapsedTime = currentTime - fragmentSet.startTime; if (elapsedTime > FRAGMENT_LIFESPAN) { fragmentSet.materials.forEach(material => { if (material) material.dispose(); }); scene.remove(fragmentSet.group); activeFragments.splice(i, 1); continue; } const fadeRatio = Math.max(0, 1.0 - (elapsedTime / FRAGMENT_LIFESPAN)**2); fragmentSet.group.children.forEach(fragment => { if (fragment.userData.velocity && fragment.userData.angularVelocity && fragment.material) { fragment.userData.velocity.y -= FRAGMENT_GRAVITY * deltaTime; fragment.position.addScaledVector(fragment.userData.velocity, deltaTime); const deltaRotation = fragment.userData.angularVelocity.clone().multiplyScalar(deltaTime); const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(deltaRotation.x, deltaRotation.y, deltaRotation.z)); fragment.quaternion.multiplyQuaternions(q, fragment.quaternion); fragment.material.opacity = fadeRatio; fragment.material.needsUpdate = true; } }); } }
+        function checkCollisions() { /* ... same ... */ if (!orb || !paddle || gameState !== 'playing') return; const orbBox = new THREE.Box3().setFromObject(orb); const paddleBox = new THREE.Box3().setFromObject(paddle); if (orbVelocity.y < 0 && orbBox.intersectsBox(paddleBox)) { const paddleTop = paddle.position.y + PADDLE_HEIGHT / 2; if (orb.position.y - ORB_RADIUS < paddleTop + 0.5 && orb.position.y + ORB_RADIUS > paddle.position.y - PADDLE_HEIGHT / 2) { let collidePointX = (orb.position.x - paddle.position.x) / (PADDLE_WIDTH / 2); collidePointX = Math.max(-1, Math.min(1, collidePointX)); let angleRad = collidePointX * (Math.PI / 2.5); const speed = orbVelocity.length(); orbVelocity.y = Math.abs(Math.cos(angleRad) * speed); orbVelocity.x = Math.sin(angleRad) * speed; orbVelocity.z = 0; orbVelocity.normalize().multiplyScalar(speed); orb.position.y = paddleTop + ORB_RADIUS + 0.05; increaseOrbSpeed(ORB_SPEED_INCREASE_PER_HIT); return; } } let collisionOccurredThisFrame = false; for (let i = blocks.length - 1; i >= 0; i--) { if (collisionOccurredThisFrame) break; const blockData = blocks[i]; const blockMesh = blockData.mesh; if (!blockMesh.parent) continue; const blockBox = new THREE.Box3().setFromObject(blockMesh); if (orbBox.intersectsBox(blockBox)) { collisionOccurredThisFrame = true; const centerDistX = orb.position.x - blockMesh.position.x; const centerDistY = orb.position.y - blockMesh.position.y; const overlapX = (ORB_RADIUS + BLOCK_WIDTH / 2) - Math.abs(centerDistX); const overlapY = (ORB_RADIUS + BLOCK_HEIGHT / 2) - Math.abs(centerDistY); if (overlapX >= overlapY) { orbVelocity.y *= -1; orb.position.y += (orbVelocity.y > 0 ? overlapY : -overlapY) * 1.05; } else { orbVelocity.x *= -1; orb.position.x += (orbVelocity.x > 0 ? overlapX : -overlapX) * 1.05; } increaseOrbSpeed(ORB_SPEED_INCREASE_PER_HIT * 0.75); if (blockData.isBreakable) { blockData.health--; score += 5; if (blockData.health <= 0) { const blockPosition = blockMesh.position.clone(); const blockMaterial = blockMesh.material; triggerCameraShake(); scene.remove(blockMesh); blocks.splice(i, 1); createFragments(blockPosition, blockMaterial); score += 25; updateHUD(); checkLevelCompletion(); } else { if (blockData.char === 'M' && blockData.health === 2) { blockMesh.material = BLOCK_MATERIALS['C']; blockData.char = 'C'; } else if (blockData.char === 'C' && blockData.health === 1) { blockMesh.material = BLOCK_MATERIALS['W']; blockData.char = 'W'; } updateHUD(); } } else { } return; } } }
+        function checkLevelCompletion() { /* ... same ... */ const remainingBreakable = blocks.filter(b => b.isBreakable); if (remainingBreakable.length === 0 && gameState === 'playing') { currentLevel++; if (currentLevel > TOTAL_LEVELS) { gameState = "gameOver"; showMessage("YOU WIN!", "Final Score: " + score); if(orb.parent) scene.remove(orb); isCameraShaking = false; cleanupFragments(); } else { console.log(`Level ${currentLevel - 1} complete! Proceeding to Level ${currentLevel}`); gameState = "levelTransition"; if(orb){ orb.userData.currentSpeed = ORB_INITIAL_SPEED + (currentLevel -1) * 0.05; if(paddle) orb.position.set(paddle.position.x, PADDLE_Y_POS + 5, 0); resetOrbPositionAndAngle(); } showMessage(`LEVEL ${currentLevel}`, `Get Ready!`); cleanupFragments(); setTimeout(() => { hideMessage(); setupLevelBlocks(currentLevel); updateHUD(); gameState = "playing"; console.log("Starting Level", currentLevel); }, 2000); } } }
+
+        // --- HUD Drawing ---
+        function updateHUD() {
+            hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+            hudCtx.font = "Bold 20px Arial";
+            hudCtx.fillStyle = "rgba(255, 255, 255, 0.9)";
+            // Title - Left
+            hudCtx.textAlign = 'left';
+            hudCtx.fillText("Survesh's 3D Block Burster", 15, 30);
+            // Level - Center
+            hudCtx.textAlign = 'center';
+            hudCtx.fillText("Level: " + currentLevel, hudCanvas.width / 2, 30);
+            // Score & Lives - Right
+            hudCtx.textAlign = 'right';
+            hudCtx.fillText("Score: " + score + "  Lives: " + lives, hudCanvas.width - 15, 30);
+            hudTexture.needsUpdate = true;
+        }
+
+        // --- Input & Resize Listeners ---
+        function keyDownHandler(e) { if (gameState !== 'playing') return; if(e.key=="Right"||e.key=="ArrowRight"){rightPressed=true;}else if(e.key=="Left"||e.key=="ArrowLeft"){leftPressed=true;} }
+        function keyUpHandler(e) { if(e.key=="Right"||e.key=="ArrowRight"){rightPressed=false;}else if(e.key=="Left"||e.key=="ArrowLeft"){leftPressed=false;} }
+        document.addEventListener("keydown", keyDownHandler, false); document.addEventListener("keyup", keyUpHandler, false);
+        window.addEventListener('resize', () => { const width = window.innerWidth; const height = window.innerHeight; camera.aspect = width / height; camera.updateProjectionMatrix(); renderer.setSize(width, height); composer.setSize(width, height); }, false);
+        // Touch Listeners
+        function handleTouch(event) { if (gameState !== 'playing') return; if (event.touches.length > 0) { isTouching = true; const touch = event.touches[0]; const canvasBounds = renderer.domElement.getBoundingClientRect(); const touchXNormalized = (touch.clientX - canvasBounds.left) / canvasBounds.width; const paddleLimit = PLAY_AREA_WIDTH_HALF - PADDLE_WIDTH / 2; touchTargetX = (touchXNormalized * BOUNDARY_WIDTH) - PLAY_AREA_WIDTH_HALF; touchTargetX = Math.max(-paddleLimit, Math.min(paddleLimit, touchTargetX)); event.preventDefault(); } }
+        function handleTouchEnd(event) { isTouching = false; }
+        renderer.domElement.addEventListener('touchstart', handleTouch, { passive: false }); renderer.domElement.addEventListener('touchmove', handleTouch, { passive: false }); renderer.domElement.addEventListener('touchend', handleTouchEnd, { passive: false }); renderer.domElement.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+        // Fullscreen Button Listener
+        fullscreenButton.addEventListener('click', () => { const elem = document.documentElement; if (!document.fullscreenElement) { if (elem.requestFullscreen) { elem.requestFullscreen().catch(err => console.error(`FS Error: ${err.message}`)); } else if (elem.webkitRequestFullscreen) { elem.webkitRequestFullscreen(); } else if (elem.msRequestFullscreen) { elem.msRequestFullscreen(); } fullscreenButton.textContent = "Exit"; } else { if (document.exitFullscreen) { document.exitFullscreen(); } else if (document.webkitExitFullscreen) { document.webkitExitFullscreen(); } else if (document.msExitFullscreen) { document.msExitFullscreen(); } fullscreenButton.textContent = "Fullscreen"; } });
+        if (document.fullscreenElement) { fullscreenButton.textContent = "Exit"; } else { fullscreenButton.textContent = "Fullscreen"; }
+
+        // --- Cleanup Fragments Function ---
+        function cleanupFragments() { /* ... same ... */ for (let i = activeFragments.length - 1; i >= 0; i--) { const fragmentSet = activeFragments[i]; fragmentSet.materials.forEach(material => { if (material) material.dispose(); }); scene.remove(fragmentSet.group); } activeFragments = []; }
+        // --- Reset Game Function ---
+        function resetGame() { /* ... same ... */ console.log("Resetting game..."); hideMessage(); cleanupFragments(); lives = 3; score = 0; currentLevel = 1; gameState = "levelTransition"; isCameraShaking = false; isTouching = false; touchTargetX = 0; leftPressed = false; rightPressed = false; if (!paddle) { createPaddle(); } else { paddle.position.x = 0; } if (orb && orb.parent) scene.remove(orb); createOrb(); setupLevelBlocks(currentLevel); if (!boundaryLines) createBoundaries(); updateHUD(); showMessage(`LEVEL ${currentLevel}`, "Ready?"); setTimeout(() => { hideMessage(); gameState = "playing"; console.log("Restarted game. Starting Level 1."); if (!animationFrameId) { console.log("Restarting animation loop after reset."); animate(); } }, 1500); }
+        // --- Restart Listener ---
+        const restartHandler = (e) => { if (gameState === 'gameOver' || gameState === 'levelTransition') { e.preventDefault(); resetGame(); } };
+        messageOverlay.addEventListener('click', restartHandler);
+        messageOverlay.addEventListener('touchend', restartHandler, { passive: false });
+
+        // --- Animation Loop ---
+        function animate() {
+            animationFrameId = requestAnimationFrame(animate);
+            const deltaTime = clock.getDelta();
+            if (gameState === "playing") { updatePaddle(); updateOrb(); checkCollisions(); }
+            if (gameState === "playing" || isCameraShaking) { updateCamera(); }
+            updateFragments(deltaTime);
+            composer.render(deltaTime);
+            if(gameState === "gameOver" && !isCameraShaking && activeFragments.length === 0 && animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; console.log("Animation loop stopped (Game Over)."); }
+        }
+
+        // --- Initialization ---
+        function initGame() {
+            createPaddle(); createOrb(); createBoundaries();
+            setupLevelBlocks(currentLevel);
+            updateHUD();
+            // Environment map update is now called after setupLevelBlocks via setTimeout
+            console.log("Initialization complete. Starting animation loop...");
+            gameState = "playing";
+            animate();
+        }
+
+        initGame();
+
+        // --- Cleanup shared resources on page unload ---
+        window.addEventListener('beforeunload', () => { /* ... same cleanup ... */ console.log("Cleaning up shared resources on page unload..."); if (blockGeometry) { blockGeometry.dispose(); console.log("Disposed shared block geometry."); blockGeometry = null; } if (fragmentGeometryCache) { fragmentGeometryCache.dispose(); console.log("Disposed shared fragment geometry cache."); fragmentGeometryCache = null; } Object.values(BLOCK_MATERIALS).forEach(mat => mat.dispose()); console.log("Disposed shared block materials."); if (paddle && paddle.material) paddle.material.dispose(); if (orb && orb.material) orb.material.dispose(); if (boundaryLines && boundaryLines.material) boundaryLines.material.dispose(); if (hudSprite && hudSprite.material) hudSprite.material.dispose(); if (hudTexture) hudTexture.dispose(); if (envMapTexture) envMapTexture.dispose(); cleanupFragments(); renderer.dispose(); pmremGenerator.dispose(); composer.dispose(); console.log("Cleanup complete."); });
+
+    </script>
+</body>
+</html>
